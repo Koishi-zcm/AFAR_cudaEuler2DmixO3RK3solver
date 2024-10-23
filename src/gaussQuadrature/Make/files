@@ -1,0 +1,3 @@
+d2GaussQuadrature.C
+
+LIB = $(FOAM_USER_LIBBIN)/libgaussQuadrature
