@@ -77,6 +77,9 @@ Usage
 	setting is also required for field initialization. Besides, the 2D case mesh should always set
 	in x-y plane for correct behavior of the solver.
 	
-	An example case 2DRiemannProblem is provided to show the basic setting of cudaEuler2DmixO3RK3solver.
-	You can run ./cudaEuler2DmixO3RK3solver in the case directory directly to simulate the case. Paraview
-	is suggested for data visualization.
+	An example case cornerFlow is provided to show the basic setting of cudaEuler2DmixO3RK3solver. The simulation
+	steps:
+	1. use blockMesh to create computational domain.
+	2. always remember to run renumberMesh -overwrite to reorder the cell labels.
+	3. run ./cudaEuler2DmixO3RK3solver
+	Paraview is suggested for data visualization.
