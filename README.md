@@ -4,7 +4,7 @@ Adaptive Fluxes and Adaptive Reconstructions (AFAR) method implementation for Eu
 
 ## Installation
 
-The code is based on the mesh and file I/O system in OpenFOAM and is only tested with OpenFOAM-10 and CUDA 11.5. It is required to build a USER directory in OpenFOAM and it should be organized as the standard file organization in OpenFOAM-10.
+The code is based on the mesh and file I/O system in OpenFOAM and is only tested with OpenFOAM-10 and CUDA 11.5 on Ubuntu 22.04 platform. It is required to build a USER directory in OpenFOAM and it should be organized as the standard file organization in OpenFOAM-10.
 	
 Makefiles are provided here but they are used on the test device. To make it work on other devices, please follow the following steps to compile the code:
 	
