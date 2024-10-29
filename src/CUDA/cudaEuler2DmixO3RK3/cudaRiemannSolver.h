@@ -114,7 +114,7 @@ __device__ void RoeFlux(
 
     const float UL = UxLeft*nfx + UyLeft*nfy;
     const float UR = UxRight*nfx + UyRight*nfy;
-    const float cLeft = sqrt( max((gamma - 1.0f)*(hLeft - 0.5f*(UxLeft*UxLeft + UyLeft*UyRight)), 1e-20f) );
+    const float cLeft = sqrt( max((gamma - 1.0f)*(hLeft - 0.5f*(UxLeft*UxLeft + UyLeft*UyLeft)), 1e-20f) );
     const float cRight = sqrt( max((gamma - 1.0f)*(hRight - 0.5f*(UxRight*UxRight + UyRight*UyRight)), 1e-20f) );
 
     float eps = 2.0f*max(0.0f, (UR - cRight) - (UL - cLeft));
