@@ -32,9 +32,9 @@ writeInterval   0.01;
 
 purgeWrite      0;
 
-writeFormat     ascii;
+writeFormat     binary; //ascii;
 
-writePrecision  6;
+writePrecision  9;
 
 writeCompression off;
 
