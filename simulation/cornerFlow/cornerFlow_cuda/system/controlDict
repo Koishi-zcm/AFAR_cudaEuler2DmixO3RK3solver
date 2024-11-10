@@ -18,7 +18,7 @@ application     cudaEuler2DmixO3RK3solver;
 
 startFrom       startTime;
 
-startTime       0.01;
+startTime       0;
 
 stopAt          endTime;
 
