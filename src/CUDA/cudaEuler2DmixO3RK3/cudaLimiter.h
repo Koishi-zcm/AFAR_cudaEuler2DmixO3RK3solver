@@ -3,13 +3,34 @@
 
 #define SMALL 1e-5f
 #define VSMALL 1e-10f
-#define BVD_FACTOR 0.8f
+#define BVD_FACTOR 0.5f
 #define VALID_LIM_FACTOR 0.9f
 
-#define ToMinmod(yy) fminf(yy, 1.0f)
-#define ToBarthJespersen(yy) fminf(2.0f*yy, 1.0f)
-#define ToVenkatakrishnan(yy) fminf((yy*yy + yy + VSMALL)/(yy*yy + 0.5f + 0.5f*yy + VSMALL), 1.0f)
-#define ToSuperbee(yy) fmaxf(fmin(2.0f*yy, 1.0f), yy)
+__device__ __forceinline__ float ToMinmod(const float& yy)
+{
+	return fminf(yy, 1.0f);
+}
+
+__device__ __forceinline__ float ToBarthJespersen(const float& yy)
+{
+	return fminf(2.0f*yy, 1.0f);
+}
+
+__device__ __forceinline__ float ToVenkatakrishnan(const float& yy)
+{
+	return fminf((yy*yy + yy + VSMALL)/(yy*yy + 0.5f + 0.5f*yy + VSMALL), 1.0f);
+}
+
+__device__ __forceinline__ float ToSuperbee(const float& yy)
+{
+	return fmaxf(fminf(2.0f*yy, 1.0f), yy);
+}
+
+__device__ __forceinline__ float transFormLimiter(const float& lim, const bool& isShock)
+{
+	return isShock*(ToVenkatakrishnan(lim)) + (1 - isShock)*(ToBarthJespersen(lim));
+}
+
 
 __device__ void limiterProcess(
 	float& limiter, float& phif, float& d1, float& d2, float& yy,
@@ -45,23 +66,25 @@ __global__ void reconstruct(
 	const uint8_t* __restrict__ compactStencilSize,
 	const int* __restrict__ extendStencil,
 	const uint16_t* __restrict__ extendStencilSize,
+	const uint16_t* __restrict__ compactExtendStencilSize,
 	const int cellsNum,
+	const int facesNum,
 	const int maxStencilSize,
 	const int maxCompactStencilSize,
-	const int maxLocalBlockStencilSize
+	const int maxLocalBlockStencilSize,
+	const int maxCompactLocalBlockStencilSize
 )
 {
 	const int celli = threadIdx.x + blockIdx.x*blockDim.x;
 
 	extern __shared__ double sm_reconstruct[];
 	double* x0Stencil = sm_reconstruct;
-	double* y0Stencil = (double*)&x0Stencil[maxLocalBlockStencilSize];
-	float* pStencil = (float*)&y0Stencil[maxLocalBlockStencilSize];
+	double* y0Stencil = (double*)&x0Stencil[maxCompactLocalBlockStencilSize];
+	float* pStencil = (float*)&y0Stencil[maxCompactLocalBlockStencilSize];
 	float* UxStencil = (float*)&pStencil[maxLocalBlockStencilSize];
 	float* UyStencil = (float*)&UxStencil[maxLocalBlockStencilSize];
 	float* TStencil = (float*)&UyStencil[maxLocalBlockStencilSize];
-	int* idStencil = (int*)&TStencil[maxLocalBlockStencilSize];
-	uint16_t* stencil = (uint16_t*)&idStencil[maxLocalBlockStencilSize];
+	uint16_t* stencil = (uint16_t*)&TStencil[maxLocalBlockStencilSize];
 	uint8_t* localStencilSize = (uint8_t*)&stencil[maxStencilSize*blockDim.x];
 	uint8_t* localCompactStencilSize = (uint8_t*)&localStencilSize[blockDim.x];
 
@@ -75,7 +98,6 @@ __global__ void reconstruct(
 		TStencil[threadIdx.x] = FD[celli].T;
 		x0Stencil[threadIdx.x] = CELL[celli].x;
 		y0Stencil[threadIdx.x] = CELL[celli].y;
-		idStencil[threadIdx.x] = celli;
 
 		for (int i = 0; i < localStencilSize[threadIdx.x]; ++i)
 		{
@@ -95,9 +117,18 @@ __global__ void reconstruct(
 			UxStencil[blockDim.x + id] = FD[ii].Ux;
 			UyStencil[blockDim.x + id] = FD[ii].Uy;
 			TStencil[blockDim.x + id] = FD[ii].T;
+		}
+	}
+
+	{
+		const uint16_t ESS = compactExtendStencilSize[blockIdx.x];
+		const int16_t loops = (ESS + blockDim.x - 1)/blockDim.x;
+		for (int i = 0; i < loops; ++i)
+		{
+			const int id = (threadIdx.x + i*blockDim.x < ESS)*(threadIdx.x + i*blockDim.x);
+			const int ii = extendStencil[(maxLocalBlockStencilSize - blockDim.x)*blockIdx.x + id];
 			x0Stencil[blockDim.x + id] = CELL[ii].x;
 			y0Stencil[blockDim.x + id] = CELL[ii].y;
-			idStencil[blockDim.x + id] = ii;
 		}
 	}
 
@@ -183,13 +214,14 @@ __global__ void reconstruct(
 
 			for(unsigned fi = 0; fi < localCompactStencilSize[threadIdx.x]; ++fi)
 			{
-				const int faceI = cellFaces[maxCompactStencilSize*celli + fi];
+				int faceI = cellFaces[maxCompactStencilSize*celli + fi];
+				const bool isNei = (faceI < 0);
+				faceI = abs(faceI) - 1;
+
+				if (faceI >= facesNum) continue;  // ignore boundary face direction
+
 				const double dx = FACE[faceI].x - x0Stencil[threadIdx.x];
 				const double dy = FACE[faceI].y - y0Stencil[threadIdx.x];
-				const uint16_t& faceNeiLocalID = stencil[maxStencilSize*threadIdx.x + fi];
-				const bool isNei = celli > idStencil[faceNeiLocalID];
-
-				if (idStencil[faceNeiLocalID] >= cellsNum) continue;  // ignore boundary face direction
 
 				faceFD[2*faceI + isNei].p = (double)(pStencil[threadIdx.x]) + tGradPx*dx + tGradPy*dy;
 				faceFD[2*faceI + isNei].Ux = (double)(UxStencil[threadIdx.x]) + tGradUxx*dx + tGradUyx*dy;
@@ -197,7 +229,7 @@ __global__ void reconstruct(
 				faceFD[2*faceI + isNei].T = (double)(TStencil[threadIdx.x]) + tGradTx*dx + tGradTy*dy;
 			}
 
-			shockIndicator[celli] = 0;
+			shockIndicator[2*celli] = 0;
 		}
 		else
 		{
@@ -217,15 +249,17 @@ __global__ void reconstruct(
 
 			for(unsigned fi = 0; fi < localCompactStencilSize[threadIdx.x]; ++fi)
 			{
-				const int faceI = cellFaces[maxCompactStencilSize*celli + fi];
+				int faceI = cellFaces[maxCompactStencilSize*celli + fi];
+				const bool isNei = (faceI < 0);
+				faceI = abs(faceI) - 1;
+
+				if (faceI >= facesNum) continue;  // ignore boundary face direction
+
 				const double dx = FACE[faceI].x - x0Stencil[threadIdx.x];
 				const double dy = FACE[faceI].y - y0Stencil[threadIdx.x];
 				const uint16_t& faceNeiLocalID = stencil[maxStencilSize*threadIdx.x + fi];
 				const float deltaR = hypot(x0Stencil[faceNeiLocalID] - x0Stencil[threadIdx.x], y0Stencil[faceNeiLocalID] - y0Stencil[threadIdx.x]);
 				const float fraction = sqrt(dx*dx + dy*dy)/deltaR;
-				const bool isNei = celli > idStencil[faceNeiLocalID];
-
-				if (idStencil[faceNeiLocalID] >= cellsNum) continue;  // ignore boundary face direction
 
 				float RBFbasisItem = RBFbasis[2*(maxStencilSize+1)*faceI + (isNei)*(maxStencilSize+1)];
 				double pf = RBFbasisItem * pStencil[threadIdx.x];
@@ -271,12 +305,12 @@ __global__ void reconstruct(
 				isNotTrouble = phif > 0.0f;
 			}
 
-			limiter[celli].pLimiter = fmax(tmpPlimiter, 0.0f)*isNotTrouble;
-			limiter[celli].UxLimiter = fmax(tmpUxLimiter, 0.0f)*isNotTrouble;
-			limiter[celli].UyLimiter = fmax(tmpUyLimiter, 0.0f)*isNotTrouble;
-			limiter[celli].TLimiter = fmax(tmpTLimiter, 0.0f)*isNotTrouble;
-			smoothnessValue = smoothnessValue/(0.5f*(pMax + pMin) + VSMALL);
-			shockIndicator[celli] = (smoothnessValue > 1.0f);
+			limiter[celli].pLimiter = fmaxf(tmpPlimiter, 0.0f)*isNotTrouble;
+			limiter[celli].UxLimiter = fmaxf(tmpUxLimiter, 0.0f)*isNotTrouble;
+			limiter[celli].UyLimiter = fmaxf(tmpUyLimiter, 0.0f)*isNotTrouble;
+			limiter[celli].TLimiter = fmaxf(tmpTLimiter, 0.0f)*isNotTrouble;
+			smoothnessValue = smoothnessValue/(0.5f*(pMax + pMin)*isNotTrouble + VSMALL);
+			shockIndicator[2*celli] = (smoothnessValue > 1.0f);
 		}
 	}
 }
@@ -297,6 +331,7 @@ __global__ void BVDindicator(
 	const int* __restrict__ extendStencil,
 	const uint16_t* __restrict__ extendStencilSize,
 	const int cellsNum,
+	const int facesNum,
 	const int maxStencilSize,
 	const int maxCompactStencilSize,
 	const int maxLocalBlockStencilSize
@@ -311,22 +346,20 @@ __global__ void BVDindicator(
 	double* gradTyStencil = (double*)&gradTxStencil[blockDim.x];
 	float* TStencil = (float*)&gradTyStencil[blockDim.x];
 	float* TLimiterStencil = (float*)&TStencil[blockDim.x];
-	int* idStencil = (int*)&TLimiterStencil[blockDim.x];
-	uint16_t* stencil = (uint16_t*)&idStencil[maxLocalBlockStencilSize];
+	uint16_t* stencil = (uint16_t*)&TLimiterStencil[blockDim.x];
 	uint8_t* localStencilSize = (uint8_t*)&stencil[maxStencilSize*blockDim.x];
 	int8_t* shockIndicatorStencil = (int8_t*)&localStencilSize[blockDim.x];
 
 	if (celli < cellsNum)
 	{
-		localStencilSize[threadIdx.x] = stencilSize[celli];
 		TStencil[threadIdx.x] = FD[celli].T;
 		gradTxStencil[threadIdx.x] = gradFD[celli].gradTx;
 		gradTyStencil[threadIdx.x] = gradFD[celli].gradTy;
 		x0Stencil[threadIdx.x] = CELL[celli].x;
 		y0Stencil[threadIdx.x] = CELL[celli].y;
 		TLimiterStencil[threadIdx.x] = limiter[celli].TLimiter;
-		shockIndicatorStencil[threadIdx.x] = shockIndicator[celli];
-		idStencil[threadIdx.x] = celli;
+		localStencilSize[threadIdx.x] = stencilSize[celli];
+		shockIndicatorStencil[threadIdx.x] = shockIndicator[2*celli];
 
 		for (int i = 0; i < localStencilSize[threadIdx.x]; ++i)
 		{
@@ -341,8 +374,7 @@ __global__ void BVDindicator(
 		{
 			const int id = (threadIdx.x + i*blockDim.x < ESS)*(threadIdx.x + i*blockDim.x);
 			const int ii = extendStencil[(maxLocalBlockStencilSize - blockDim.x)*blockIdx.x + id];
-			shockIndicatorStencil[blockDim.x + id] = shockIndicator[ii];
-			idStencil[blockDim.x + id] = ii;
+			shockIndicatorStencil[blockDim.x + id] = shockIndicator[2*ii];
 		}
 	}
 
@@ -351,58 +383,83 @@ __global__ void BVDindicator(
 	if (celli < cellsNum)
 	{
 		int BVDtype = 0;
+		int bfacesNum = 0;
 
 		const int localCompactStencilSize = compactStencilSize[celli];
 
+		int8_t shockType = shockIndicatorStencil[threadIdx.x];
+		int8_t shockType_extend = shockIndicatorStencil[threadIdx.x];
+
+		for (int ci = 0; ci < localCompactStencilSize; ++ci)
+		{
+			const uint16_t& j = stencil[maxStencilSize*threadIdx.x + ci];
+			shockType += shockIndicatorStencil[j];
+			shockType_extend = shockType;
+		}
+
+		for (int ci = localCompactStencilSize; ci < localStencilSize[threadIdx.x]; ++ci)
+		{
+			const uint16_t& j = stencil[maxStencilSize*threadIdx.x + ci];
+			shockType_extend += shockIndicatorStencil[j];
+		}
+
+		// for (int ci = 0; ci < localStencilSize[threadIdx.x]; ++ci)
+		// {
+		// 	const uint16_t& j = stencil[maxStencilSize*threadIdx.x + ci];
+		// 	shockType += shockIndicatorStencil[j];
+		// 	shockType_extend += shockIndicatorStencil[j];
+		// }
+
 		for(unsigned fi = 0; fi < localCompactStencilSize; ++fi)
 		{
-			const int faceI = cellFaces[maxCompactStencilSize*celli + fi];
-			const uint16_t& faceNeiLocalID = stencil[maxStencilSize*threadIdx.x + fi];
-			const bool isNei = celli > idStencil[faceNeiLocalID];
+			int faceI = cellFaces[maxCompactStencilSize*celli + fi];
+			const bool isNei = (faceI < 0);
+			faceI = abs(faceI) - 1;
+			
+			if (faceI >= facesNum)
+			{
+				bfacesNum += 1;
+				if (bfacesNum >= 2)  // use O2 reconstruction on corner cells
+				{
+					BVDtype = 1;
+					break;
+				}
 
-			if (idStencil[faceNeiLocalID] >= cellsNum) continue;  // ignore boundary face direction
+				continue;  // ignore boundary face direction, because of no stored O3 value on boundary faces
+			}
 
 			const double dx_cur = FACE[faceI].x - x0Stencil[threadIdx.x];
 			const double dy_cur = FACE[faceI].y - y0Stencil[threadIdx.x];
 
-			const float TfOwn = faceFD[2*faceI].T;
-			const float TfNei = faceFD[2*faceI+1].T;
+			const double TfOwn = faceFD[2*faceI].T;
+			const double TfNei = faceFD[2*faceI+1].T;
 
-			const float Tf_cur = isNei*TfNei + (1 - isNei)*TfOwn;
-			const float Tf_nei = (1 - isNei)*TfNei + isNei*TfOwn;
+			const double Tf_cur = isNei*TfNei + (1 - isNei)*TfOwn;
+			const double Tf_nei = (1 - isNei)*TfNei + isNei*TfOwn;
 
-			const float lim = ToBarthJespersen(TLimiterStencil[threadIdx.x]);
-			const float Tf_cur_TVD = TStencil[threadIdx.x] + lim*(float)(gradTxStencil[threadIdx.x]*dx_cur + gradTyStencil[threadIdx.x]*dy_cur);
+			const double lim = ToBarthJespersen(TLimiterStencil[threadIdx.x]);
+			const double Tf_cur_TVD = TStencil[threadIdx.x] + lim*(gradTxStencil[threadIdx.x]*dx_cur + gradTyStencil[threadIdx.x]*dy_cur);
 
-			const int typeval = fabsf(Tf_cur_TVD - Tf_nei) < BVD_FACTOR*fabsf(Tf_cur - Tf_nei);
-			const int isNotFlat = fabsf(Tf_cur - Tf_nei) > VSMALL;
-			const int isLimited = lim < VALID_LIM_FACTOR;
+			const int typeval = fabs(Tf_cur_TVD - Tf_nei) < BVD_FACTOR*fabs(Tf_cur - Tf_nei);
+			const int isNotFlat = fabs(Tf_cur - Tf_nei) > VSMALL;
+			const int isLimited = (lim < VALID_LIM_FACTOR) + (shockType_extend > 0);
 
 			BVDtype = max(BVDtype, isNotFlat*isLimited*typeval);
 		}
 
-		int8_t shockType = shockIndicatorStencil[threadIdx.x];
-
-		for (int ci = 0; ci < localStencilSize[threadIdx.x]; ++ci)
-		{
-			const uint16_t& j = stencil[maxStencilSize*threadIdx.x + ci];
-			shockType += shockIndicatorStencil[j];
-		}
-
-		const int finalType = (shockType > 0)*(-2) + (BVDtype > 0);
-		shockIndicator[celli] = finalType;
+		const int finalType = (shockType > 0)*(shockType_extend > 1)*(-2) + (BVDtype > 0);
+		shockIndicator[2*celli+1] = finalType;
 
 		const bool isShock = finalType < 0;
 		const float pLimiter = limiter[celli].pLimiter;
 		const float UxLimiter = limiter[celli].UxLimiter;
 		const float UyLimiter = limiter[celli].UyLimiter;
 		const float TLimiter = limiter[celli].TLimiter;
-		limiter[celli].pLimiter = isShock*(ToMinmod(pLimiter)) + (1 - isShock)*(ToBarthJespersen(pLimiter));
-		limiter[celli].UxLimiter = isShock*(ToMinmod(UxLimiter)) + (1 - isShock)*(ToBarthJespersen(UxLimiter));
-		limiter[celli].UyLimiter = isShock*(ToMinmod(UyLimiter)) + (1 - isShock)*(ToBarthJespersen(UyLimiter));
-		limiter[celli].TLimiter = isShock*(ToMinmod(TLimiter)) + (1 - isShock)*(ToBarthJespersen(TLimiter));
+		limiter[celli].pLimiter = transFormLimiter(pLimiter, isShock);
+		limiter[celli].UxLimiter = transFormLimiter(UxLimiter, isShock);
+		limiter[celli].UyLimiter = transFormLimiter(UyLimiter, isShock);
+		limiter[celli].TLimiter = transFormLimiter(TLimiter, isShock);
 
 	}
 }
-
 #endif

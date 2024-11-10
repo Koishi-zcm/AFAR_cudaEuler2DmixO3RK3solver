@@ -23,6 +23,104 @@ __device__ double atomicAdd(double* address, double val)
 #endif
 
 
+__global__ void initShockIndicator(int8_t* __restrict__ shockIndicator, const int cellsNum, const int totalBoundaryFacesNum)
+{
+	const int celli = threadIdx.x + blockIdx.x*blockDim.x;
+
+	if (celli < 2*(cellsNum + totalBoundaryFacesNum))
+	{
+		shockIndicator[celli] = 0;
+	}
+}
+
+
+__global__ void initResidual(residualFieldData* __restrict__ Res, const int cellsNum)
+{
+	const int celli = threadIdx.x + blockIdx.x*blockDim.x;
+
+	if (celli < cellsNum)
+	{
+		Res[celli].Rrho = 0.0;
+		Res[celli].RrhoUx = 0.0;
+		Res[celli].RrhoUy = 0.0;
+		Res[celli].RrhoE = 0.0;
+	}
+}
+
+
+__global__ void calcLeastSquareMatrix(
+	float* __restrict__ matrix,
+	const uint16_t* __restrict__ localStencil,
+	const uint8_t* __restrict__ compactStencilSize,
+	const meshCellData* __restrict__ CELL,
+	const int* __restrict__ extendStencil,
+	const uint16_t* __restrict__ compactExtendStencilSize,
+	const int cellsNum,
+	const int maxStencilSize,
+	const int maxCompactStencilSize,
+	const int maxCompactLocalBlockStencilSize,
+	const int maxLocalBlockStencilSize
+)
+{
+	const int celli = threadIdx.x + blockIdx.x*blockDim.x;
+
+	extern __shared__ double sm_calcLeastSquareMatrix[];
+	double* x0Stencil = (double*)sm_calcLeastSquareMatrix;
+	double* y0Stencil = (double*)&x0Stencil[maxCompactLocalBlockStencilSize];
+
+	if (celli < cellsNum)
+	{
+		x0Stencil[threadIdx.x] = CELL[celli].x;
+		y0Stencil[threadIdx.x] = CELL[celli].y;
+	}
+
+	{
+		const uint16_t ESS = compactExtendStencilSize[blockIdx.x];
+		const uint16_t loops = (ESS + blockDim.x - 1)/blockDim.x;
+		for (int i = 0; i < loops; ++i)
+		{
+			const int id = (threadIdx.x + i*blockDim.x < ESS)*(threadIdx.x + i*blockDim.x);
+			const int ii = extendStencil[(maxLocalBlockStencilSize - blockDim.x)*blockIdx.x + id];
+			x0Stencil[blockDim.x + id] = CELL[ii].x;
+			y0Stencil[blockDim.x + id] = CELL[ii].y;
+		}
+	}
+
+	__syncthreads();
+
+	if (celli < cellsNum)
+	{
+		const uint8_t m = compactStencilSize[celli];
+		double Sxx = 0.0;
+		double Sxy = 0.0;
+		double Syy = 0.0;
+
+		for(uint8_t i = 0; i < m; ++i)
+		{
+			const uint16_t j = localStencil[maxStencilSize*celli + i];
+			const double& x0 = x0Stencil[threadIdx.x];
+			const double& y0 = y0Stencil[threadIdx.x];
+			const double& xj = x0Stencil[j];
+			const double& yj = y0Stencil[j];
+			Sxx += (xj - x0)*(xj - x0);
+			Sxy += (xj - x0)*(yj - y0);
+			Syy += (yj - y0)*(yj - y0);
+		}
+
+		for(uint8_t i = 0; i < m; ++i)
+		{
+			const uint16_t j = localStencil[maxStencilSize*celli + i];
+			const double& x0 = x0Stencil[threadIdx.x];
+			const double& y0 = y0Stencil[threadIdx.x];
+			const double& xj = x0Stencil[j];
+			const double& yj = y0Stencil[j];
+			matrix[2*maxCompactStencilSize*celli + 2*i] = (Syy*(xj - x0) - Sxy*(yj - y0))/(Sxx*Syy - Sxy*Sxy);
+			matrix[2*maxCompactStencilSize*celli + 2*i+1] = (-Sxy*(xj - x0) + Sxx*(yj - y0))/(Sxx*Syy - Sxy*Sxy);
+		}
+	}
+}
+
+
 __global__ void setDeltaT(
 	double* __restrict__ minDeltaT,
 	const basicFieldData* __restrict__ FD,
@@ -82,84 +180,11 @@ __global__ void setDeltaT(
 }
 
 
-__global__ void calcLeastSquareMatrix(
-	float* __restrict__ matrix,
-	const uint16_t* __restrict__ localStencil,
-	const uint8_t* __restrict__ compactStencilSize,
-	const meshCellData* __restrict__ CELL,
-	const int* __restrict__ extendStencil,
-	const uint16_t* __restrict__ extendStencilSize,
-	const int cellsNum,
-	const int maxStencilSize,
-	const int maxCompactStencilSize,
-	const int maxLocalBlockStencilSize
-)
-{
-	const int celli = threadIdx.x + blockIdx.x*blockDim.x;
-
-	extern __shared__ double sm_calcLeastSquareMatrix[];
-	double* x0Stencil = (double*)sm_calcLeastSquareMatrix;
-	double* y0Stencil = (double*)&x0Stencil[maxLocalBlockStencilSize];
-
-	if (celli < cellsNum)
-	{
-		x0Stencil[threadIdx.x] = CELL[celli].x;
-		y0Stencil[threadIdx.x] = CELL[celli].y;
-	}
-
-	{
-		const uint16_t ESS = extendStencilSize[blockIdx.x];
-		const uint16_t loops = (ESS + blockDim.x - 1)/blockDim.x;
-		for (int i = 0; i < loops; ++i)
-		{
-			const int id = (threadIdx.x + i*blockDim.x < ESS)*(threadIdx.x + i*blockDim.x);
-			const int ii = extendStencil[(maxLocalBlockStencilSize - blockDim.x)*blockIdx.x + id];
-			x0Stencil[blockDim.x + id] = CELL[ii].x;
-			y0Stencil[blockDim.x + id] = CELL[ii].y;
-		}
-	}
-
-	__syncthreads();
-
-	if (celli < cellsNum)
-	{
-		const uint8_t m = compactStencilSize[celli];
-		double Sxx = 0.0;
-		double Sxy = 0.0;
-		double Syy = 0.0;
-
-		for(uint8_t i = 0; i < m; ++i)
-		{
-			const uint16_t j = localStencil[maxStencilSize*celli + i];
-			const double& x0 = x0Stencil[threadIdx.x];
-			const double& y0 = y0Stencil[threadIdx.x];
-			const double& xj = x0Stencil[j];
-			const double& yj = y0Stencil[j];
-			Sxx += (xj - x0)*(xj - x0);
-			Sxy += (xj - x0)*(yj - y0);
-			Syy += (yj - y0)*(yj - y0);
-		}
-
-		for(uint8_t i = 0; i < m; ++i)
-		{
-			const uint16_t j = localStencil[maxStencilSize*celli + i];
-			const double& x0 = x0Stencil[threadIdx.x];
-			const double& y0 = y0Stencil[threadIdx.x];
-			const double& xj = x0Stencil[j];
-			const double& yj = y0Stencil[j];
-			matrix[2*maxCompactStencilSize*celli + 2*i] = (Syy*(xj - x0) - Sxy*(yj - y0))/(Sxx*Syy - Sxy*Sxy);
-			matrix[2*maxCompactStencilSize*celli + 2*i+1] = (-Sxy*(xj - x0) + Sxx*(yj - y0))/(Sxx*Syy - Sxy*Sxy);
-		}
-	}
-}
-
-
 __global__ void evaluateResidual(
 	residualFieldData* __restrict__ Res,
 	const basicFluxData* __restrict__ Flux,
 	const int* __restrict__ cellFaces,
 	const uint8_t* __restrict__ compactStencilSize,
-	const int8_t* __restrict__ faceDirection,
 	const int cellsNum,
 	const int maxCompactStencilSize
 )
@@ -170,8 +195,9 @@ __global__ void evaluateResidual(
 	{
 		for (int fi = 0; fi < compactStencilSize[idx]; ++fi)
 		{
-			const int faceI = cellFaces[maxCompactStencilSize*idx + fi];
-			const int8_t direction = faceDirection[maxCompactStencilSize*idx + fi];
+			int faceI = cellFaces[maxCompactStencilSize*idx + fi];
+			const int direction = (faceI > 0) - (faceI < 0);
+			faceI = abs(faceI) - 1;
 			Res[idx].Rrho += direction*Flux[faceI].rhoFlux;
 			Res[idx].RrhoUx += direction*Flux[faceI].rhoUxFlux;
 			Res[idx].RrhoUy += direction*Flux[faceI].rhoUyFlux;

@@ -22,6 +22,7 @@ private:
 	double Cv_;
 	double CFL_;
 	double shapeFactor_;
+	bool recalcBasis_;
 
 	int cellsNum_;
 	int facesNum_;
@@ -31,6 +32,7 @@ private:
 	int maxStencilSize_;
 	int maxCompactStencilSize_;
 	int maxLocalBlockStencilSize_;
+	int maxCompactLocalBlockStencilSize_;
 
 	Foam::word stencilType_;
 

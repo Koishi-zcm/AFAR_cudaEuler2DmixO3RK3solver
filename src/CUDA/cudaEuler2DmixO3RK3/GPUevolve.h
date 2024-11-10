@@ -3,7 +3,15 @@
 
 #include "basicDataStructure.h"
 
-extern "C" void setDeviceFieldData(
+void setDeviceFieldData(
+	fieldPointer& devicePtr,
+	fieldPointer& hostPtr,
+	const int cellsNum,
+	const int facesNum,
+	const int totalBoundaryFacesNum
+);
+
+void setDeviceFieldData(
 	fieldPointer& devicePtr,
 	fieldPointer& hostPtr,
 	const int cellsNum,
@@ -12,12 +20,13 @@ extern "C" void setDeviceFieldData(
 	const int totalBoundaryFacesNum,
 	const int maxStencilSize,
 	const int maxCompactStencilSize,
-	const int maxLocalBlockStencilSize
+	const int maxLocalBlockStencilSize,
+	const int maxCompactLocalBlockStencilSize
 );
 
-extern "C" void freeFieldData(fieldPointer& devicePtr, fieldPointer& hostPtr);
+void freeFieldData(fieldPointer& devicePtr, fieldPointer& hostPtr);
 
-extern "C" double adjustTimeStep(
+double adjustTimeStep(
 	fieldPointer& devicePtr,
 	fieldPointer& hostPtr,
 	const int facesNum,
@@ -26,7 +35,7 @@ extern "C" double adjustTimeStep(
 	const double CFL
 );
 
-extern "C" void GPUevolve(
+void GPUevolve(
 	fieldPointer& devicePtr,
 	fieldPointer& hostPtr,
 	const double R,
@@ -37,11 +46,12 @@ extern "C" void GPUevolve(
 	const int totalBoundaryFacesNum,
 	const int maxStencilSize,
 	const int maxCompactStencilSize,
-	const int maxLocalBlockStencilSize
+	const int maxLocalBlockStencilSize,
+	const int maxCompactLocalBlockStencilSize
 );
 
 
-extern "C" void copyFieldDataDeviceToHost(
+void copyFieldDataDeviceToHost(
 	fieldPointer& hostPtr,
 	fieldPointer& devicePtr,
 	const int cellsNum,

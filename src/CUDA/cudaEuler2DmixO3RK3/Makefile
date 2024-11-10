@@ -1,6 +1,8 @@
 FOAM_SRC = /home/zcm21/OpenFOAM/OpenFOAM-10/src
 USER_LIB = /home/zcm21/OpenFOAM/zcm21-10/platforms/linux64GccDPInt32Opt/lib
 
+NAME = cudaEuler2DmixO3RK3
+
 FLAG1 = -std=c++14 -m64 -Dlinux64 -DWM_ARCH_OPTION=64 -DWM_DP -DWM_LABEL_SIZE=32 \
         -Wall -Wextra -Wold-style-cast -Wnon-virtual-dtor -Wno-unused-parameter \
         -Wno-invalid-offsetof -Wno-attributes -O3  -DNoRepository -ftemplate-depth-100 -fPIC
@@ -16,7 +18,7 @@ LINK = -I$(FOAM_SRC)/finiteVolume/lnInclude \
         -I$(FOAM_SRC)/meshTools/lnInclude \
         -IlnInclude \
         -I. \
-        -I../BCs \
+        -I../BCs/2D \
         -I/home/zcm21/OpenFOAM/OpenFOAM-10/src/OpenFOAM/lnInclude \
         -I/home/zcm21/OpenFOAM/OpenFOAM-10/src/OSspecific/POSIX/lnInclude \
         -I/home/zcm21/OpenFOAM/zcm21-10/src/gaussQuadrature/lnInclude
@@ -29,13 +31,13 @@ LIB = -L/home/zcm21/OpenFOAM/OpenFOAM-10/platforms/linux64GccDPInt32Opt/lib \
 
 default:
 	g++ $(FLAG1) $(LINK) -c basicCUDAsolver.cpp -o Make/linux64GccDPInt32Opt/basicCUDAsolver.o
-	nvcc -Xcompiler '-fPIC' $(LINK) -dc GPUevolve.cu -o Make/linux64GccDPInt32Opt/GPUevolve.o
-	nvcc -Xcompiler '-fPIC' $(LINK) -dlink Make/linux64GccDPInt32Opt/GPUevolve.o -o Make/linux64GccDPInt32Opt/link.o
+	nvcc -O3 -Xcompiler '-fPIC' $(LINK) -dc GPUevolve.cu -o Make/linux64GccDPInt32Opt/GPUevolve.o
+	nvcc -O3 -Xcompiler '-fPIC' $(LINK) -dlink Make/linux64GccDPInt32Opt/GPUevolve.o -o Make/linux64GccDPInt32Opt/link.o
 	g++ $(FLAG2) -lcudart $(LINK) $(LIB) \
 	Make/linux64GccDPInt32Opt/basicCUDAsolver.o \
 	Make/linux64GccDPInt32Opt/GPUevolve.o \
 	Make/linux64GccDPInt32Opt/link.o \
-	-o $(USER_LIB)/libcudaEuler2DmixO3RK3.so
+	-o $(USER_LIB)/lib$(NAME).so
 
 .PHONY:lnInclude clean
 lnInclude:
@@ -53,4 +55,4 @@ lnInclude:
 clean:
 	rm -rf ./lnInclude/
 	rm -rf *.o
-	rm $(USER_LIB)/libcudaEuler2DmixO3RK3.so
+	rm $(USER_LIB)/lib$(NAME).so

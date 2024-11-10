@@ -112,8 +112,8 @@ __device__ void RoeFlux(
     const float r2 = deltaRho - deltaP/(cTilde*cTilde);
     const float r3 = (deltaP + rhoTilde*cTilde*deltaContrV)/(2.0f*cTilde*cTilde);
 
-    const float UL = UxLeft*nfx + UyLeft*nfy;
-    const float UR = UxRight*nfx + UyRight*nfy;
+    const float& UL = contrVLeft;
+    const float& UR = contrVRight;
     const float cLeft = sqrt( max((gamma - 1.0f)*(hLeft - 0.5f*(UxLeft*UxLeft + UyLeft*UyLeft)), 1e-20f) );
     const float cRight = sqrt( max((gamma - 1.0f)*(hRight - 0.5f*(UxRight*UxRight + UyRight*UyRight)), 1e-20f) );
 
@@ -181,9 +181,9 @@ __global__ void evaluateFlux(
         const double deltaRxRight = FACE[faceI].x - CELL[nei].x;
         const double deltaRyRight = FACE[faceI].y - CELL[nei].y;
 
-        const bool isTVD_left = shockIndicator[own] != 0;
-        const bool isTVD_right = shockIndicator[nei] != 0;
-        const bool isShock = shockIndicator[own] < 0 || shockIndicator[nei] < 0;
+        const bool isTVD_left = shockIndicator[2*own+1] != 0;
+        const bool isTVD_right = shockIndicator[2*nei+1] != 0;
+        const bool isShock = shockIndicator[2*own+1] < 0 || shockIndicator[2*nei+1] < 0;
 
         const double magSf = FACE[faceI].magSf;
         const double Sfx = FACE[faceI].Sfx;

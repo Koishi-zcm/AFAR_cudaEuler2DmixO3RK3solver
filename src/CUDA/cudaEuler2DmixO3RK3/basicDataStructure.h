@@ -141,6 +141,7 @@ struct fieldPointer
 	// extend stencil of each block, local cells are not included here and only additional cells are marked
 	int* extendStencil;
 	uint16_t* extendStencilSize;
+	uint16_t* compactExtendStencilSize;
 
 	// block local stencil label list of each cell
 	uint16_t* localStencil;
@@ -149,10 +150,10 @@ struct fieldPointer
 	float* matrix;
 
 	// id list of faces that construct each cell, including boundary faces
+	// modified face labels are stored here according to Gauss theorem direction.
+	// own to nei -> cellFaces[maxCompactStencilSize*celli + fi] = (faceI + 1)
+	// nei to own -> cellFaces[maxCompactStencilSize*celli + fi] = -(faceI + 1)
 	int* cellFaces;
-
-	// Gauss theorem direction. own to nei -> positive; nei to own -> negative
-	int8_t* faceDirection;
 
 	// deltaT list for courant number evaluation in kernal function to determine time step
 	double* minDeltaT;
