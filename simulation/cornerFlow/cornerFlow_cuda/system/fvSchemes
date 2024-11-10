@@ -25,6 +25,7 @@ CUDA
     R  0.7142857;
     Cv  1.7857142857;
     stencilType  edgeNeighbour;
+    recalcBasis  true;
 
     boundary
     {
