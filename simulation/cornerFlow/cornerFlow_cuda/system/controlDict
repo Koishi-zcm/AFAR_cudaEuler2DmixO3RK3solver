@@ -14,7 +14,7 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-application     dbnsFoam;
+application     cudaEuler2DmixO3RK3solver;
 
 startFrom       startTime;
 
