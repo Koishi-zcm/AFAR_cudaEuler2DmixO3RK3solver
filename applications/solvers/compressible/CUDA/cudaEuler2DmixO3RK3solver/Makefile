@@ -14,7 +14,7 @@ LINK = -I$(FOAM_SRC)/finiteVolume/lnInclude \
 	-I$(FOAM_SRC)/MomentumTransportModels/compressible/lnInclude \
 	-I$(FOAM_SRC)/ThermophysicalTransportModels/lnInclude \
 	-I$(FOAM_SRC)/meshTools/lnInclude \
-	-I/home/zcm21/OpenFOAM/zcm21-10/src/CUDA/$(NAME)/lnInclude \
+	-I/home/zcm21/OpenFOAM/zcm21-10/src/CUDA/Euler/$(NAME)/lnInclude \
 	-IlnInclude \
 	-I. \
 	-I$(FOAM_SRC)/OpenFOAM/lnInclude \

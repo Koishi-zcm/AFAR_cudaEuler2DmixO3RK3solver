@@ -48,7 +48,7 @@ int main(int argc, char *argv[])
 
     unsigned int ITER = 0;
 
-    Info << "\nITER\tTime[s]\tdeltaT[s]\tExecutionTime[s]" << endl;
+    Info << "\nITER    Time[s]    deltaT[s]    ExecutionTime[s]" << endl;
 
     while(runTime.run())
     {
@@ -70,17 +70,17 @@ int main(int argc, char *argv[])
 
         if (ITER % 200 == 0)
         {
-            Info << "\nITER\tTime[s]\tdeltaT[s]\tExecutionTime[s]" << endl;
+            Info << "\nITER    Time[s]    deltaT[s]    ExecutionTime[s]" << endl;
         }
         if (ITER % 10 == 0)
         {
-            Info << ITER << "\t" << runTime.timeName() << "\t" << runTime.deltaT().value() << "\t" << runTime.elapsedCpuTime() << endl;
+            Info << ITER << "    " << runTime.timeName() << "    " << runTime.deltaT().value() << "    " << runTime.elapsedCpuTime() << endl;
         }
     }
 
     Info << "\nevolve operation completed." << endl;
-    Info << "ITER\tTime[s]\tdeltaT[s]\tExecutionTime[s]" << endl;
-    Info << ITER << "\t" << runTime.timeName() << "\t" << runTime.deltaT().value() << "\t" << runTime.elapsedCpuTime() << endl;
+    Info << "ITER    Time[s]    deltaT[s]    ExecutionTime[s]" << endl;
+    Info << ITER << "    " << runTime.timeName() << "    " << runTime.deltaT().value() << "    " << runTime.elapsedCpuTime() << endl;
 
     delete cudaSolver;
 
