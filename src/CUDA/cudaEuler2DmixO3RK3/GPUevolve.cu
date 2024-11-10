@@ -15,11 +15,7 @@ void setDeviceFieldData(
 	fieldPointer& hostPtr,
 	const int cellsNum,
 	const int facesNum,
-	const int patchesNum,
-	const int totalBoundaryFacesNum,
-	const int maxStencilSize,
-	const int maxCompactStencilSize,
-	const int maxLocalBlockStencilSize
+	const int totalBoundaryFacesNum
 )
 {
 	dim3 blockDim(BLOCKDIM);
@@ -39,8 +35,11 @@ void setDeviceFieldData(
 
 	cudaMalloc((void**)&devicePtr.limiter, sizeof(limiterFieldData) * cellsNum);
 
-	cudaMalloc((void**)&devicePtr.shockIndicator, sizeof(int8_t) * (cellsNum + totalBoundaryFacesNum));
-	cudaMemcpy(devicePtr.shockIndicator, hostPtr.shockIndicator, sizeof(int8_t) * (cellsNum + totalBoundaryFacesNum), cudaMemcpyHostToDevice);
+	cudaMalloc((void**)&devicePtr.shockIndicator, sizeof(int8_t) * 2*(cellsNum + totalBoundaryFacesNum));
+	hostPtr.shockIndicator = (int8_t*)malloc(sizeof(int8_t) * 2*(cellsNum + totalBoundaryFacesNum));
+	blockDim.x = BLOCKDIM;
+	gridDim.x = (2*(cellsNum + totalBoundaryFacesNum) + blockDim.x - 1)/blockDim.x;
+	initShockIndicator<<<gridDim, blockDim>>>(devicePtr.shockIndicator, cellsNum, totalBoundaryFacesNum);
 
 	cudaMalloc((void**)&devicePtr.cFD, sizeof(conservedFieldData) * cellsNum);
 	cudaMemcpy(devicePtr.cFD, hostPtr.cFD, sizeof(conservedFieldData) * cellsNum, cudaMemcpyHostToDevice);
@@ -51,10 +50,35 @@ void setDeviceFieldData(
 	cudaMalloc((void**)&devicePtr.gradFD, sizeof(gradientFieldData) * cellsNum);
 
 	cudaMalloc((void**)&devicePtr.Flux, sizeof(basicFluxData) * (facesNum + totalBoundaryFacesNum));
-	cudaMemcpy(devicePtr.Flux, hostPtr.Flux, sizeof(basicFluxData) * (facesNum + totalBoundaryFacesNum), cudaMemcpyHostToDevice);
 
 	cudaMalloc((void**)&devicePtr.Res, sizeof(residualFieldData) * cellsNum);
-	cudaMemcpy(devicePtr.Res, devicePtr.Res, sizeof(residualFieldData) * cellsNum, cudaMemcpyHostToDevice);
+	blockDim.x = BLOCKDIM;
+	gridDim.x = (cellsNum + blockDim.x - 1)/blockDim.x;
+	initResidual<<<gridDim, blockDim>>>(devicePtr.Res, cellsNum);
+
+	cudaError_t err = cudaGetLastError();
+	if(err != cudaSuccess) {
+		printf("setDeviceFieldData error! %s\n", cudaGetErrorString(err));
+		std::exit(-1);
+	}
+}
+
+
+void setDeviceFieldData(
+	fieldPointer& devicePtr,
+	fieldPointer& hostPtr,
+	const int cellsNum,
+	const int facesNum,
+	const int patchesNum,
+	const int totalBoundaryFacesNum,
+	const int maxStencilSize,
+	const int maxCompactStencilSize,
+	const int maxLocalBlockStencilSize,
+	const int maxCompactLocalBlockStencilSize
+)
+{
+	dim3 blockDim(BLOCKDIM);
+	dim3 gridDim((cellsNum + blockDim.x - 1)/blockDim.x);
 
 	cudaMalloc((void**)&devicePtr.neighbour, sizeof(int) * facesNum*2);
 	cudaMemcpy(devicePtr.neighbour, hostPtr.neighbour, sizeof(int) * facesNum*2, cudaMemcpyHostToDevice);
@@ -85,6 +109,9 @@ void setDeviceFieldData(
 	cudaMalloc((void**)&devicePtr.extendStencilSize, sizeof(uint16_t) * gridDim.x);
 	cudaMemcpy(devicePtr.extendStencilSize, hostPtr.extendStencilSize, sizeof(uint16_t) * gridDim.x, cudaMemcpyHostToDevice);
 
+	cudaMalloc((void**)&devicePtr.compactExtendStencilSize, sizeof(uint16_t) * gridDim.x);
+	cudaMemcpy(devicePtr.compactExtendStencilSize, hostPtr.compactExtendStencilSize, sizeof(uint16_t) * gridDim.x, cudaMemcpyHostToDevice);
+
 	cudaMalloc((void**)&devicePtr.extendStencil, sizeof(int) * (maxLocalBlockStencilSize - blockDim.x)*gridDim.x);
 	cudaMemcpy(devicePtr.extendStencil, hostPtr.extendStencil, sizeof(int) * (maxLocalBlockStencilSize - blockDim.x)*gridDim.x, cudaMemcpyHostToDevice);
 
@@ -96,9 +123,6 @@ void setDeviceFieldData(
 	cudaMalloc((void**)&devicePtr.cellFaces, sizeof(int) * maxCompactStencilSize*cellsNum);
 	cudaMemcpy(devicePtr.cellFaces, hostPtr.cellFaces, sizeof(int) * maxCompactStencilSize*cellsNum, cudaMemcpyHostToDevice);
 
-	cudaMalloc((void**)&devicePtr.faceDirection, sizeof(int8_t) * maxCompactStencilSize*cellsNum);
-	cudaMemcpy(devicePtr.faceDirection, hostPtr.faceDirection, sizeof(int8_t) * maxCompactStencilSize*cellsNum, cudaMemcpyHostToDevice);
-
 	blockDim.x = 1024;
 	gridDim.x = (facesNum + blockDim.x - 1)/blockDim.x;
 	hostPtr.minDeltaT = (double*)malloc(sizeof(double)*gridDim.x);
@@ -107,11 +131,12 @@ void setDeviceFieldData(
 	printf("evaluating least square inverse matrix...");
 	blockDim.x = BLOCKDIM;
 	gridDim.x = (cellsNum + blockDim.x - 1)/blockDim.x;
-	const size_t smSize = sizeof(double) * maxLocalBlockStencilSize*2;
+	const size_t smSize = sizeof(double) * maxCompactLocalBlockStencilSize*2;
 	calcLeastSquareMatrix<<<gridDim, blockDim, smSize>>>(
 		devicePtr.matrix, devicePtr.localStencil, devicePtr.compactStencilSize,
-		devicePtr.CELL, devicePtr.extendStencil, devicePtr.extendStencilSize,
-		cellsNum, maxStencilSize, maxCompactStencilSize, maxLocalBlockStencilSize
+		devicePtr.CELL, devicePtr.extendStencil, devicePtr.compactExtendStencilSize,
+		cellsNum, maxStencilSize, maxCompactStencilSize,
+		maxCompactLocalBlockStencilSize, maxLocalBlockStencilSize
 	);
 	printf("complete!\n");
 
@@ -140,6 +165,7 @@ void freeFieldData(fieldPointer& devicePtr, fieldPointer& hostPtr)
 	cudaFree(devicePtr.boundaryFacesType);
 	cudaFree(devicePtr.stencilSize);
 	cudaFree(devicePtr.extendStencilSize);
+	cudaFree(devicePtr.compactExtendStencilSize);
 	cudaFree(devicePtr.extendStencil);
 	cudaFree(devicePtr.localStencil);
 	cudaFree(devicePtr.matrix);
@@ -189,7 +215,8 @@ void GPUevolve(
 	const int totalBoundaryFacesNum,
 	const int maxStencilSize,
 	const int maxCompactStencilSize,
-	const int maxLocalBlockStencilSize
+	const int maxLocalBlockStencilSize,
+	const int maxCompactLocalBlockStencilSize
 )
 {
 	const double gamma = R/Cv + 1.0;
@@ -207,22 +234,20 @@ void GPUevolve(
 	{
 		blockDim.x = BLOCKDIM;
 		gridDim.x = (cellsNum + blockDim.x - 1)/blockDim.x;
-		size_t sharedMemSize = sizeof(double)*maxLocalBlockStencilSize*2
+		size_t sharedMemSize = sizeof(double)*maxCompactLocalBlockStencilSize*2
 			+ sizeof(float)*maxLocalBlockStencilSize*4
-			+ sizeof(int)*maxLocalBlockStencilSize
 			+ sizeof(uint16_t)*blockDim.x*maxStencilSize
 			+ sizeof(uint8_t)*blockDim.x*2;
 		reconstruct<<<gridDim, blockDim, sharedMemSize>>>(
 			devicePtr.faceFD, devicePtr.gradFD, devicePtr.limiter, devicePtr.shockIndicator,
 			devicePtr.FD, devicePtr.matrix, devicePtr.RBFbasis, devicePtr.CELL, devicePtr.FACE, devicePtr.cellFaces,
 			devicePtr.localStencil, devicePtr.stencilSize, devicePtr.compactStencilSize,
-			devicePtr.extendStencil, devicePtr.extendStencilSize,
-			cellsNum, maxStencilSize, maxCompactStencilSize, maxLocalBlockStencilSize
+			devicePtr.extendStencil, devicePtr.extendStencilSize, devicePtr.compactExtendStencilSize,
+			cellsNum, facesNum, maxStencilSize, maxCompactStencilSize, maxLocalBlockStencilSize, maxCompactLocalBlockStencilSize
 		);
 
 		sharedMemSize = sizeof(double)*blockDim.x*4
 			+ sizeof(float)*blockDim.x*2
-			+ sizeof(int)*maxLocalBlockStencilSize
 			+ sizeof(uint16_t)*blockDim.x*maxStencilSize
 			+ sizeof(uint8_t)*blockDim.x
 			+ sizeof(int8_t)*maxLocalBlockStencilSize;
@@ -231,7 +256,7 @@ void GPUevolve(
 			devicePtr.FD, devicePtr.CELL, devicePtr.FACE, devicePtr.cellFaces,
 			devicePtr.localStencil, devicePtr.stencilSize, devicePtr.compactStencilSize,
 			devicePtr.extendStencil, devicePtr.extendStencilSize,
-			cellsNum, maxStencilSize, maxCompactStencilSize, maxLocalBlockStencilSize
+			cellsNum, facesNum, maxStencilSize, maxCompactStencilSize, maxLocalBlockStencilSize
 		);
 
 		blockDim.x = BLOCKDIM;
@@ -246,7 +271,7 @@ void GPUevolve(
 		gridDim.x = (cellsNum + blockDim.x - 1)/blockDim.x;
 		evaluateResidual<<<gridDim, blockDim>>>(
 			devicePtr.Res, devicePtr.Flux, devicePtr.cellFaces,
-			devicePtr.compactStencilSize, devicePtr.faceDirection,
+			devicePtr.compactStencilSize,
 			cellsNum, maxCompactStencilSize
 		);
 
@@ -289,5 +314,5 @@ void copyFieldDataDeviceToHost(
 )
 {
 	cudaMemcpy(hostPtr.FD, devicePtr.FD, sizeof(basicFieldData)*(cellsNum + totalBoundaryFacesNum), cudaMemcpyDeviceToHost);
-	cudaMemcpy(hostPtr.shockIndicator, devicePtr.shockIndicator, sizeof(int8_t)*(cellsNum + totalBoundaryFacesNum), cudaMemcpyDeviceToHost);
+	cudaMemcpy(hostPtr.shockIndicator, devicePtr.shockIndicator, sizeof(int8_t)*2*(cellsNum + totalBoundaryFacesNum), cudaMemcpyDeviceToHost);
 }
