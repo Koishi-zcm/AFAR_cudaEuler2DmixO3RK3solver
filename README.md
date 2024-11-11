@@ -35,7 +35,7 @@ e.g.:
 	
 ### STEP3:
 
-Enter src/CUDA/cudaEuler2DmixO3RK3 directory, check the Makefile and replace the FOAM_SRC, USER_LIB and some LINK into your correct paths. For other versions of OpenFOAM you may also need to remove some unnecessary LIB like -lmomentumTransportModels. After correcting all the paths, use make lnInclude to create file links and make default for solver lib.
+Enter src/CUDA/cudaEuler2DmixO3RK3 directory, check the Makefile and replace the FOAM_SRC, USER_LIB and some LINK by your correct paths. For other versions of OpenFOAM you may also need to remove some unnecessary LIB like -lmomentumTransportModels. After correcting all the paths, use make lnInclude to create file links and make default for solver lib.
 	
 e.g.:
 
@@ -74,6 +74,6 @@ An example case cornerFlow is provided to show the basic setting of cudaEuler2Dm
 
 1. use blockMesh to create computational domain.
 2. always remember to run renumberMesh -overwrite to reorder the cell labels.
-3. run ./cudaEuler2DmixO3RK3solver
+3. run cudaEuler2DmixO3RK3solver
 
 Paraview is suggested for data visualization.
