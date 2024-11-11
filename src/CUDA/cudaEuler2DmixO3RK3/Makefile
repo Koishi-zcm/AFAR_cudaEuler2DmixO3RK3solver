@@ -16,11 +16,11 @@ LINK = -I$(FOAM_SRC)/finiteVolume/lnInclude \
         -I$(FOAM_SRC)/MomentumTransportModels/compressible/lnInclude \
         -I$(FOAM_SRC)/ThermophysicalTransportModels/lnInclude \
         -I$(FOAM_SRC)/meshTools/lnInclude \
+        -I$(FOAM_SRC)/OpenFOAM/lnInclude \
+        -I$(FOAM_SRC)/OSspecific/POSIX/lnInclude \
         -IlnInclude \
         -I. \
         -I../BCs/2D \
-        -I/home/zcm21/OpenFOAM/OpenFOAM-10/src/OpenFOAM/lnInclude \
-        -I/home/zcm21/OpenFOAM/OpenFOAM-10/src/OSspecific/POSIX/lnInclude \
         -I/home/zcm21/OpenFOAM/zcm21-10/src/gaussQuadrature/lnInclude
 
 LIB = -L/home/zcm21/OpenFOAM/OpenFOAM-10/platforms/linux64GccDPInt32Opt/lib \
